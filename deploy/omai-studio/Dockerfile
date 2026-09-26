@@ -9,11 +9,13 @@ FROM python:3.12-slim
 
 # Node serve al compositore Remotion, Chromium al suo rendering, ffmpeg al montaggio.
 # I driver VAAPI danno a ffmpeg l'accelerazione dell'iGPU quando /dev/dri e' passato.
+# Va la variante di "main": la -non-free non e' installabile su python:3.12-slim,
+# dove il componente non-free non e' abilitato, e fa fallire il build.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         curl ca-certificates gnupg git \
         ffmpeg fonts-liberation \
         chromium \
-        intel-media-va-driver-non-free \
+        intel-media-va-driver \
     && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
     && apt-get purge -y gnupg \
