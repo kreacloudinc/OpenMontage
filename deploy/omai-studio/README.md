@@ -1,7 +1,12 @@
 # L'agente di regia di OMAI Studio
 
-Questa cartella costruisce `ghcr.io/kreacloudinc/openmontage-gateway`, il container
-`openmontage` dello stack **app_videomai_2026** su SANDONATO-EXP.
+Questa cartella costruisce il container `openmontage` dello stack
+**app_videomai_2026** su SANDONATO-EXP.
+
+Si costruisce **sulla macchina**, come ogni altra immagine di quello stack: su
+SANDONATO non si scarica niente da un registro. Lo stack punta il contesto di build a
+questa repo — che e' pubblica — quindi Compose se la clona da solo al deploy e non
+c'e' nessuna copia del sorgente sul disco da ricordarsi di aggiornare.
 
 OMAI Studio e' una coda di produzione con un pannello: riceve una sceneggiatura, la
 spezza in job, chiama i provider, monta con ffmpeg e tiene il conto di cosa e'
@@ -99,6 +104,28 @@ Il materiale di Studio e' montato in sola lettura anche per questo.
 
 ## Costruire e provare
 
+Sul server non si fa a mano: lo fa Compose al deploy dello stack, con
+
+```yaml
+  build:
+    context: ${OM_SOURCE:-https://github.com/kreacloudinc/OpenMontage.git#main}
+    dockerfile: deploy/omai-studio/Dockerfile
+  image: openmontage-gateway:local
+  pull_policy: build
+```
+
+`OM_SOURCE` fra le variabili dello stack serve a puntare un ramo diverso mentre ci si
+lavora (`...OpenMontage.git#un-ramo`). `pull_policy: build` e' quello che impedisce a
+Compose di riusare in silenzio l'immagine gia' presente e far girare il codice di
+prima senza dirlo.
+
+**Il primo build e' lungo**: Node, Chromium e i driver VAAPI su un N100 sono decine di
+minuti. E' anche il motivo per cui il servizio sta dietro il profilo `regia` — la
+Factory deve poter girare mentre l'agente non c'e'. Dai successivi la cache lascia da
+rifare solo la copia del sorgente.
+
+A mano, per lavorarci sopra:
+
 ```bash
 # dalla radice della repo
 docker build -f deploy/omai-studio/Dockerfile -t openmontage-gateway:prova .
@@ -124,18 +151,14 @@ I test non hanno bisogno ne' della CLI ne' della rete:
 pytest tests/deploy -v
 ```
 
-## La CI
+## Aggiornarlo
 
-`.github/workflows/omai-gateway.yml` costruisce e pubblica su ogni push a `main` e
-sui tag `omai-v*`. Nessun filtro sui percorsi, ed e' voluto: il server fa
-`docker compose pull` e prende `latest`, e un filtro che lasciasse fuori un file
-che conta servirebbe codice vecchio senza che niente lo dica.
-
-Sul server non si costruisce mai:
+Non c'e' nessun registro di mezzo e nessuna immagine da pubblicare: il codice di
+questa cartella arriva sulla macchina quando arriva su `main`, e lo stack lo prende
+al redeploy successivo.
 
 ```bash
-docker compose pull openmontage && docker compose up -d openmontage
+docker compose --profile regia up -d --build openmontage
 ```
 
-Per fissare una versione invece di seguire `latest`, si mette `OM_IMAGE_TAG` fra le
-variabili dello stack.
+Da Portainer e' *Update the stack* con `COMPOSE_PROFILES=regia` fra le variabili.

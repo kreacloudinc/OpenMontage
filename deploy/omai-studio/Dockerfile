@@ -1,10 +1,15 @@
 # Agente di regia per OMAI Studio.
 #
-# Immagine: ghcr.io/kreacloudinc/openmontage-gateway
-# Contesto di build: la radice della repo (`docker build -f deploy/omai-studio/Dockerfile .`)
+# Contesto di build: la radice della repo (`docker build -f deploy/omai-studio/Dockerfile .`).
 #
-# Si costruisce dalla CI e non sul server: SANDONATO-EXP e' un N100, e Node piu'
-# Chromium sono decine di minuti di macchina ferma mentre il pannello non risponde.
+# Si costruisce sulla macchina, come tutto il resto dello stack: su SANDONATO non si
+# scarica niente da un registro. Lo stack `app_videomai_2026` punta il contesto di build
+# direttamente a questa repo, che e' pubblica, quindi Compose se la clona da solo.
+#
+# Il primo build e' lungo — Node, Chromium e i driver VAAPI su un N100 sono decine di
+# minuti — e per questo il servizio sta dietro un profilo: la Factory deve poter girare
+# anche mentre l'agente non c'e'. Dopo il primo, la cache dei livelli lascia da rifare
+# solo la copia del sorgente.
 #
 # Chromium arriva da Debian e NON da `npx remotion browser ensure`: quello scarica
 # centinaia di megabyte al primo render, cioe' dentro il primo turno di una persona
