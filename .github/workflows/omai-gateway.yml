@@ -1,0 +1,99 @@
+name: OMAI gateway
+
+# Costruisce l'immagine dell'agente di regia per lo stack app_videomai_2026.
+#
+# Si costruisce qui e non sul server: SANDONATO-EXP e' un N100, e mettere insieme
+# Node, Chromium e le dipendenze Python sono decine di minuti di macchina ferma
+# mentre il pannello non risponde. Sul server si fa solo `docker compose pull`.
+
+on:
+  # Nessun filtro sui percorsi per main, ed e' voluto. Il server fa
+  # `docker compose pull` e prende `latest`: se un filtro lasciasse fuori un file
+  # che conta, il redeploy servirebbe codice vecchio senza che niente lo dica, che
+  # e' il modo peggiore di sbagliare. La cache dei livelli tiene basso il prezzo.
+  push:
+    branches: [main]
+    tags: ["omai-v*"]
+  # Sulle pull request si costruisce solo quando si tocca il gateway, e non si
+  # pubblica: serve a sapere se il Dockerfile sta ancora in piedi.
+  pull_request:
+    paths:
+      - "deploy/omai-studio/**"
+      - ".github/workflows/omai-gateway.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: omai-gateway-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  IMAGE: ghcr.io/${{ github.repository_owner }}/openmontage-gateway
+
+jobs:
+  test:
+    name: Test del gateway
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements-dev.txt
+
+      - name: Test
+        run: python -m pytest tests/deploy -v
+
+  build:
+    name: Costruisci e pubblica
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      # Su una pull request si costruisce e basta: pubblicare da un ramo che non
+      # e' ancora entrato vorrebbe dire che un redeploy del server prende quello.
+      - name: Log in to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}},prefix=omai-v
+            type=sha,format=short
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/omai-studio/Dockerfile
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # La cache sta su GitHub: l'immagine porta Chromium e un npm install,
+          # e senza ogni build ripartirebbe da zero.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
